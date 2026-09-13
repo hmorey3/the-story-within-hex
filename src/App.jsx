@@ -1,10 +1,19 @@
 import { useEffect, useState } from 'react';
-import { ARENAS, PALETTE, HEX_WIDTH, HEXES_PER_ROW, SHOW_LABELS, STORE_KEY } from './arenas.js';
+import { ARENAS, PALETTE, HEX_WIDTH, HEXES_PER_ROW, STORE_KEY } from './arenas.js';
+import { BEATS, beatOptionMap, BEAT_CAPTIONS } from './beats.js';
 
 function PencilIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none">
       <path d="M11.3 1.3a1.5 1.5 0 0 1 2.12 0l1.28 1.28a1.5 1.5 0 0 1 0 2.12l-8.5 8.5-4 1 1-4 8.1-8.9z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+      <path d="M2 2l12 12M14 2L2 14" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   );
 }
@@ -83,6 +92,42 @@ function ThreadPicker({ threads, selectedId, onPick, onEdit }) {
   );
 }
 
+function BeatCategoryPicker({ categories, selectedId, onPick }) {
+  return (
+    <div className="thread-chip-row">
+      {categories.map(c => (
+        <button
+          key={c.id}
+          className={'thread-chip' + (selectedId === c.id ? ' selected' : '')}
+          onClick={() => onPick(c.id)}
+        >
+          <span>{c.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BeatVariantPicker({ options, selectedId, onSelect }) {
+  return (
+    <div className="arena-row">
+      {options.map(o => (
+        <button
+          key={o.id}
+          className={'arena-btn' + (selectedId === o.id ? ' selected' : '')}
+          title={o.title}
+          onClick={() => onSelect(o.id)}
+        >
+          <div className="beat-thumb">
+            <img src={o.image} alt={o.title} />
+          </div>
+          <span className="arena-label">{o.title}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Modal({ zIndex, onScrimClick, children }) {
   return (
     <div className={'modal-scrim' + (zIndex ? ' ' + zIndex : '')}>
@@ -102,6 +147,8 @@ const initialState = {
   editing: -1,
   draftKey: null,
   draftThread: null,
+  draftBeatOption: null,
+  beatCategory: null,
   threadDraft: null,
   threadReturn: null
 };
@@ -137,6 +184,10 @@ export default function App() {
     return state.threads.find(t => t.id === id) || state.threads[0];
   }
 
+  function beatOf(item) {
+    return item && item.beatOptionId ? beatOptionMap.get(item.beatOptionId) : null;
+  }
+
   function openThreadEditor(id, returnTo) {
     const t = id ? thread(id) : null;
     patch({
@@ -146,8 +197,13 @@ export default function App() {
     });
   }
 
+  function openEditor(i) {
+    const beat = beatOf(state.placed[i]);
+    patch({ modal: 'edit', editing: i, beatCategory: beat ? beat.categoryId : null });
+  }
+
   function closeModal() {
-    patch({ modal: null, editing: -1, draftKey: null, draftThread: null });
+    patch({ modal: null, editing: -1, draftKey: null, draftThread: null, draftBeatOption: null, beatCategory: null });
   }
 
   function pickFilter(id) {
@@ -158,13 +214,23 @@ export default function App() {
     }
   }
 
-  const { placed, threads, active, filter, hover, modal, editing, draftKey, draftThread, threadDraft, threadReturn } = state;
-  const rows = Math.floor(Math.max(0, placed.length) / g.cols) + 1;
+  const { placed, threads, active, filter, hover, modal, editing, draftKey, draftThread, draftBeatOption, beatCategory, threadDraft, threadReturn } = state;
+  const visible = placed
+    .map((item, i) => ({ item, i }))
+    .filter(({ item }) => !filter || item.threadId === filter);
+  const rows = Math.floor(Math.max(0, visible.length) / g.cols) + 1;
   const tile = editing >= 0 ? placed[editing] : null;
   const tileThread = tile ? thread(tile.threadId) : null;
+  const tileBeat = beatOf(tile);
   const draftThreadId = draftThread || active;
   const draftColour = thread(draftThreadId) ? thread(draftThreadId).color : '#0d0d0d';
   const draft = threadDraft || { id: null, name: '', color: PALETTE[4] };
+  const activeBeatCategory = BEATS.find(b => b.id === beatCategory) || null;
+
+  const viewArena = tile ? (ARENAS.find(x => x.key === tile.key) || ARENAS[0]) : null;
+  const viewImage = tileBeat ? tileBeat.image : (viewArena ? viewArena.src : null);
+  const viewTitle = tileBeat ? tileBeat.title : (viewArena ? viewArena.label : '');
+  const viewCaption = viewImage ? BEAT_CAPTIONS[viewImage] : null;
 
   const mapStyle = {
     position: 'relative',
@@ -174,14 +240,10 @@ export default function App() {
     height: ((rows - 1) * g.rowPitch + g.h * 1.75) + 'px'
   };
 
-  const visible = placed
-    .map((item, i) => ({ item, i }))
-    .filter(({ item }) => !filter || item.threadId === filter);
-
   function addCommit() {
-    if (!draftKey) return;
-    patch({ modal: null, draftKey: null, draftThread: null });
-    persist({ placed: placed.concat({ key: draftKey, threadId: draftThreadId }), active: draftThreadId });
+    if (!draftKey || !draftBeatOption) return;
+    patch({ modal: null, draftKey: null, draftThread: null, draftBeatOption: null, beatCategory: null });
+    persist({ placed: placed.concat({ key: draftKey, threadId: draftThreadId, beatOptionId: draftBeatOption }), active: draftThreadId });
   }
 
   function saveThread() {
@@ -204,7 +266,7 @@ export default function App() {
     patch({ modal: threadReturn === 'edit' ? null : (threadReturn || null), threadDraft: null, threadReturn: null, editing: -1 });
     persist({
       threads: nextThreads,
-      placed: placed.map(p => (p.threadId === draft.id ? { key: p.key, threadId: fallback } : p)),
+      placed: placed.map(p => (p.threadId === draft.id ? { ...p, threadId: fallback } : p)),
       active: active === draft.id ? fallback : active,
       filter: filter === draft.id ? null : filter
     });
@@ -226,27 +288,35 @@ export default function App() {
       <main className="main">
         <div className="map-scroll">
           <div style={mapStyle}>
-            {visible.map(({ item, i }) => {
+            {visible.map(({ item, i }, pos) => {
               const a = ARENAS.find(x => x.key === item.key) || ARENAS[0];
               const t = thread(item.threadId);
-              const showLabel = SHOW_LABELS && hover === i && !modal;
+              const showPencil = hover === i && !modal;
               return (
                 <div
                   key={i}
-                  style={boxStyle(i, g)}
+                  style={boxStyle(pos, g)}
                   onMouseEnter={() => patch({ hover: i })}
                   onMouseLeave={() => patch({ hover: -1 })}
-                  onClick={() => patch({ modal: 'edit', editing: i })}
+                  onClick={() => patch({ modal: 'view', editing: i })}
                 >
                   <div style={inkLayer(a.ratio, t ? t.color : '#0d0d0d')}>
                     <img className="hex-img" src={a.src} alt={a.label} />
                   </div>
-                  {showLabel && <div className="hex-label">{t ? t.name : a.label}</div>}
+                  {showPencil && (
+                    <button
+                      className="hex-pencil"
+                      title="Edit"
+                      onClick={e => { e.stopPropagation(); openEditor(i); }}
+                    >
+                      <PencilIcon />
+                    </button>
+                  )}
                 </div>
               );
             })}
 
-            <button className="ghost-btn" onClick={() => patch({ modal: 'add', draftKey: null, draftThread: active })} title="Add a hexagon" style={boxStyle(placed.length, g)}>
+            <button className="ghost-btn" onClick={() => patch({ modal: 'add', draftKey: null, draftThread: active, draftBeatOption: null, beatCategory: null })} title="Add a hexagon" style={boxStyle(visible.length, g)}>
               <div className="ghost-hex">+</div>
             </button>
           </div>
@@ -265,6 +335,34 @@ export default function App() {
         </div>
       </footer>
 
+      {modal === 'view' && tile && (
+        <div className="view-scrim" onClick={closeModal}>
+          <button className="view-close" onClick={closeModal} title="Close">
+            <CloseIcon />
+          </button>
+          {viewImage && (
+            <div className="view-frame" onClick={e => e.stopPropagation()}>
+              <img className="view-image" src={viewImage} alt={viewTitle} />
+              {viewCaption && (
+                <p
+                  className="view-caption"
+                  style={{
+                    top: viewCaption.top,
+                    left: viewCaption.left,
+                    width: viewCaption.width,
+                    textAlign: viewCaption.align,
+                    color: viewCaption.color,
+                    textShadow: viewCaption.shadow
+                  }}
+                >
+                  {viewCaption.text}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {modal === 'add' && (
         <Modal onScrimClick={closeModal}>
           <div className="modal-title">Add a hexagon</div>
@@ -274,9 +372,22 @@ export default function App() {
             <ThreadPicker threads={threads} selectedId={draftThreadId} onPick={id => patch({ draftThread: id })} onEdit={id => openThreadEditor(id, 'add')} />
             <button className="new-thread-btn" onClick={() => openThreadEditor(null, 'add')}>New thread</button>
           </div>
+          <div className="thread-section">
+            <div className="thread-section-label">Beat</div>
+            <BeatCategoryPicker categories={BEATS} selectedId={beatCategory} onPick={id => patch({ beatCategory: id })} />
+            {activeBeatCategory && (
+              <BeatVariantPicker
+                options={activeBeatCategory.options}
+                selectedId={draftBeatOption}
+                onSelect={id => patch({ draftBeatOption: id })}
+              />
+            )}
+          </div>
           <div className="modal-actions">
             <button className="action-muted" onClick={closeModal}>Cancel</button>
-            <button className={draftKey ? 'action-primary' : 'action-disabled'} onClick={addCommit}>{draftKey ? 'Add to map' : 'Choose an arena'}</button>
+            <button className={draftKey && draftBeatOption ? 'action-primary' : 'action-disabled'} onClick={addCommit}>
+              {!draftKey ? 'Choose an arena' : !draftBeatOption ? 'Choose a beat' : 'Add to map'}
+            </button>
           </div>
         </Modal>
       )}
@@ -290,7 +401,7 @@ export default function App() {
             colour={tileThread ? tileThread.color : '#0d0d0d'}
             onSelect={k => {
               const next = placed.slice();
-              next[editing] = { key: k, threadId: next[editing].threadId };
+              next[editing] = { ...next[editing], key: k };
               persist({ placed: next });
             }}
           />
@@ -301,11 +412,26 @@ export default function App() {
               selectedId={tile.threadId}
               onPick={id => {
                 const next = placed.slice();
-                next[editing] = { key: next[editing].key, threadId: id };
+                next[editing] = { ...next[editing], threadId: id };
                 persist({ placed: next });
               }}
               onEdit={id => openThreadEditor(id, 'edit')}
             />
+          </div>
+          <div className="thread-section">
+            <div className="thread-section-label">Beat</div>
+            <BeatCategoryPicker categories={BEATS} selectedId={beatCategory} onPick={id => patch({ beatCategory: id })} />
+            {activeBeatCategory && (
+              <BeatVariantPicker
+                options={activeBeatCategory.options}
+                selectedId={tile.beatOptionId}
+                onSelect={id => {
+                  const next = placed.slice();
+                  next[editing] = { ...next[editing], beatOptionId: id };
+                  persist({ placed: next });
+                }}
+              />
+            )}
           </div>
           <div className="modal-actions">
             <button className="action-muted" onClick={removeTile}>Remove</button>

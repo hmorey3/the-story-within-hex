@@ -11,6 +11,5 @@ export const PALETTE = ['#0d0d0d', '#5a5a55', '#9a958c', '#c4beb3', '#2b3a67', '
 
 export const HEX_WIDTH = 128;
 export const HEXES_PER_ROW = 7;
-export const SHOW_LABELS = true;
 
 export const STORE_KEY = 'story-within-hex-map';
